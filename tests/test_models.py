@@ -1,11 +1,11 @@
-"""Tests for PineScriptResult model validation and Dependencies dataclass."""
+"""Tests for PineScriptResult model validation."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from agent import PineScriptResult, Dependencies
+from agent import PineScriptResult
 
 
 # ---------------------------------------------------------------------------
@@ -71,29 +71,3 @@ class TestPineScriptResult:
         json_str = original.model_dump_json()
         restored = PineScriptResult.model_validate_json(json_str)
         assert restored == original
-
-
-# ---------------------------------------------------------------------------
-# Dependencies — dataclass init
-# ---------------------------------------------------------------------------
-
-class TestDependencies:
-    def test_default_values(self) -> None:
-        deps = Dependencies(openai=None, pool=None)  # type: ignore[arg-type]
-        assert deps.openrouter_api_key is None
-        assert deps.use_openrouter is False
-
-    def test_with_openrouter(self) -> None:
-        deps = Dependencies(
-            openai=None,  # type: ignore[arg-type]
-            pool=None,    # type: ignore[arg-type]
-            openrouter_api_key="sk-or-test",
-            use_openrouter=True,
-        )
-        assert deps.openrouter_api_key == "sk-or-test"
-        assert deps.use_openrouter is True
-
-    def test_fields_accessible(self) -> None:
-        deps = Dependencies(openai="mock_client", pool="mock_pool")  # type: ignore[arg-type]
-        assert deps.openai == "mock_client"
-        assert deps.pool == "mock_pool"
