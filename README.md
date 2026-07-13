@@ -2,10 +2,10 @@
 
 [![GitHub Stars](https://img.shields.io/github/stars/FaustoS88/Pydantic-AI-Pinescript-Expert?style=social)](https://github.com/FaustoS88/Pydantic-AI-Pinescript-Expert)
 [![GitHub Forks](https://img.shields.io/github/forks/FaustoS88/Pydantic-AI-Pinescript-Expert?style=social)](https://github.com/FaustoS88/Pydantic-AI-Pinescript-Expert/network/members)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A Retrieval-Augmented Generation (RAG) AI Agent built with Pydantic AI that serves as an expert on Pine Script v6, TradingView's programming language for custom indicators and strategies. This agent leverages vector search technology and large language models to provide accurate, context-aware answers and generate working code examples.
+A retrieval-augmented generation (RAG) agent built with [thinharness](https://github.com/ryanbbrown/thinharness). It answers questions about Pine Script v6, TradingView's programming language for custom indicators and strategies, using the official documentation retrieved from a vector database.
 
 ## Features
 
@@ -19,7 +19,17 @@ A Retrieval-Augmented Generation (RAG) AI Agent built with Pydantic AI that serv
 - **Vector Search**: Utilizes pgvector for efficient semantic retrieval of relevant documentation
 - **Full Documentation Processing**: Custom crawler that processes and analyzes TradingView's Pine Script documentation
 - **Persistent Chat History**: Remember conversation context in the Streamlit UI
-- **Extensive API**: Integrate with other systems using the Pydantic AI based architecture
+- **Structured output**: Returns an answer and the number of documentation snippets used
+
+## Powered by thinharness
+
+[thinharness](https://github.com/ryanbbrown/thinharness) runs the model and retrieval-tool loop.
+
+- Each answer is bounded to at most 8 model requests and 8 tool calls. These limits prevent an unsuccessful run from continuing without a bound.
+- The interactive shell and Streamlit UI use thinharness resume state, which includes the full conversation. Follow-up questions can refer to earlier user and assistant messages. The interactive `clear` command and the Streamlit **Clear Chat History** button reset this state.
+- thinharness writes local JSON Lines traces to `~/.thinharness/traces/` by default. Traces can include full prompts, model output, and tool payloads. Set `THINHARNESS_DISABLE_LOCAL_TRACING=1` to disable tracing for all runs, or pass `local_tracing=False` in `HarnessConfig` to disable it for one harness.
+
+The Streamlit UI stores display history in `chat_history.pkl` and thinharness resume state in `chat_resume.json`, both beside `streamlit_ui.py`. `chat_resume.json` can contain the full transcript and provider reasoning data. Treat both files as sensitive. **Clear Chat History** deletes both files.
 
 ## Screenshots
 
@@ -32,7 +42,7 @@ A Retrieval-Augmented Generation (RAG) AI Agent built with Pydantic AI that serv
 
 ## Prerequisites
 
-- **Python 3.9+**
+- **Python 3.11+**
 - **PostgreSQL** with pgvector extension
 - **OpenAI API key** (required for embeddings and default LLM)
 - **OpenRouter API key** (optional, for alternative LLM providers)
@@ -61,7 +71,9 @@ docker run --name pinescript-pgvector \
   -d pgvector/pgvector:pg16
    ```
    
-3. **Install requirements and set up the environment**
+3. **Set up the environment**
+
+   The setup script creates a virtual environment and installs `thinharness>=0.5.3` and the RAG dependencies from `requirements.txt`.
 
    ```bash
    python setup.py
@@ -288,7 +300,7 @@ python run.py interactive --model opus
 python run.py query "Explain ta.sma()" --model "anthropic/claude-sonnet-4.6"
 ```
 
-All presets route through [OpenRouter](https://openrouter.ai/) — add your API key to `.env` as `OPENROUTER_API_KEY`. Without it, the agent falls back to the default OpenAI model.
+All presets route through [OpenRouter](https://openrouter.ai/) — add your API key to `.env` as `OPENROUTER_API_KEY`. The IDs in `config.py` and `.env` remain raw OpenRouter IDs such as `openai/gpt-4.1-mini`; the agent adds the `openrouter:` provider prefix when it runs. Without an OpenRouter key, the agent logs a warning and falls back to the default OpenAI model.
 
 You can also override defaults via environment variables:
 
@@ -325,7 +337,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- [Pydantic AI](https://ai.pydantic.dev/) for the agent framework
+- [thinharness](https://github.com/ryanbbrown/thinharness) for the agent loop
 - [TradingView](https://www.tradingview.com/) for the Pine Script language and documentation
 - [OpenAI](https://openai.com/) and [OpenRouter](https://openrouter.ai/) for LLM capabilities
 - [pgvector](https://github.com/pgvector/pgvector) for vector search functionality

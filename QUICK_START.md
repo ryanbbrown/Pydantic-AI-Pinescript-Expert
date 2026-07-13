@@ -1,14 +1,13 @@
 # Quick Start Guide
 
-This guide provides quick step-by-step instructions to get the PineScript Expert Agent up and running.
-For a step by instruction , please refer to the [README.md](README.md) and [scripts.md](scripts.md).
+Use these steps to run the thinharness-based PineScript Expert agent. See [README.md](README.md) and [scripts.md](scripts.md) for more detail.
 
 ## 1. Set Up Environment
 
-Make sure you have Python 3.9+ installed, then:
+Make sure you have Python 3.11 or later installed, then:
 
 ```bash
-# Install dependencies
+# Install thinharness>=0.5.3 and the RAG dependencies
 pip install -r requirements.txt
 
 # Create .env file with API keys
@@ -47,6 +46,16 @@ python run.py interactive
 python run.py query "How do I create a moving average in Pine Script?"
 ```
 
+The interactive shell remembers the full conversation. Enter `clear` to reset that context. Each answer is bounded to 8 model requests and 8 tool calls.
+
+thinharness writes prompts, model output, and tool payloads as JSON Lines files in `~/.thinharness/traces/` by default. Disable local tracing with:
+
+```bash
+export THINHARNESS_DISABLE_LOCAL_TRACING=1
+```
+
+Code that builds a harness can instead set `HarnessConfig(local_tracing=False)`. The Streamlit UI also saves `chat_resume.json` beside `chat_history.pkl`; these files may contain the full transcript and provider reasoning data, so treat them as sensitive.
+
 ## Checking Database Status
 
 ```bash
@@ -65,6 +74,6 @@ python db_inspect.py search "moving average crossover"
 1. **Docker Issues**: Make sure Docker is running and port 54322 is available
 2. **Database Connection**: Verify connection string in `.env` file
 3. **Missing pgvector**: Run `python init_db.py` to check if pgvector is correctly installed
-4. **Embedding Issues**: Make sure your OpenAI API key is valid and has sufficient quota, you can test it with `python api_debug.py`
+4. **OpenAI or model issues**: Run `python api_debug.py`. It checks the OpenAI key and client, then makes a small thinharness model request. This command uses a live model and may incur a charge.
 
 For more detailed instructions, see the full [README.md](README.md) and [scripts.md](scripts.md).
