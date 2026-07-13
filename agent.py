@@ -5,30 +5,28 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import AsyncGenerator
 
 import asyncpg
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.openai import OpenAIProvider
-from dotenv import load_dotenv
+from thinharness import Harness, HarnessConfig, ToolSpec
 
 from config import (
+    DEFAULT_DATABASE_URL,
     DEFAULT_MODEL,
     EMBEDDING_MODEL,
+    HYBRID_SEARCH_ALPHA,
     LLM_MAX_TOKENS,
     LLM_TEMPERATURE,
-    OPENROUTER_BASE_URL,
-    OPENROUTER_DEFAULT_MODEL,
-    DEFAULT_DATABASE_URL,
-    HYBRID_SEARCH_ALPHA,
-    SIMILARITY_THRESHOLD,
-    RETRIEVAL_CANDIDATES,
-    RERANK_TOP_N,
     MMR_LAMBDA,
+    MODEL_PRESETS,
+    OPENROUTER_DEFAULT_MODEL,
+    RERANK_TOP_N,
+    RETRIEVAL_CANDIDATES,
+    SIMILARITY_THRESHOLD,
+    get_preset,
 )
 from rag_utils import hybrid_retrieve
 
@@ -54,6 +52,7 @@ logger.debug(
     openrouter_key[:4],
     openrouter_key[-4:] if len(openrouter_key) > 8 else "",
 )
+
 
 def get_openai_api_key() -> str:
     """Get OpenAI API key with validation and user prompt if needed."""
@@ -103,70 +102,85 @@ class PineScriptResult(BaseModel):
     response: str = Field(description="The generated response")
     snippets_used: int = Field(description="Number of documentation snippets used")
 
-@dataclass
-class Dependencies:
-    """Dependencies for the PineScript Expert Agent"""
-    openai: AsyncOpenAI
-    pool: asyncpg.Pool
-    openrouter_api_key: str = None
-    use_openrouter: bool = False
 
-# Initialize the agent with appropriate settings
-pinescript_agent = Agent(
-    DEFAULT_MODEL,
-    deps_type=Dependencies,
-    output_type=PineScriptResult,
-    system_prompt=(
-        "You are a Pine Script v6 expert assistant. Pine Script is the programming language used in TradingView "
-        "for creating custom indicators and strategies for technical analysis of financial markets. "
-        "Your task is to provide clear, accurate information about Pine Script v6 based on the official documentation. "
-        "Always include code examples in your explanations when relevant. "
-        "Focus on being practical and giving working solutions for user problems."
-    ),
-    model_settings={
-        "temperature": LLM_TEMPERATURE,
-        "max_tokens": LLM_MAX_TOKENS,
-    }
-)
-
-@pinescript_agent.system_prompt
-async def add_style_prompt(ctx: RunContext[Dependencies]) -> str:
-    """Add a style prompt for consistent responses"""
-    return (
-        "When answering questions about Pine Script, follow these guidelines:\n"
-        "1. Include working code examples whenever possible\n"
-        "2. Explain each part of the code clearly\n"
-        "3. Highlight any common pitfalls or best practices\n"
-        "4. If you're unsure about something, be transparent about it\n"
-        "5. Format your code with proper syntax highlighting\n"
-        "6. When appropriate, mention TradingView-specific context\n"
-        "7. Reference specific Pine Script v6 functions and features accurately\n"
-        "8. Provide clear explanations of complex concepts with analogies when helpful\n"
+class RetrieveArgs(BaseModel):
+    search_query: str = Field(
+        description="The search query to find relevant documentation"
     )
 
-@pinescript_agent.tool
-async def retrieve(ctx: RunContext[Dependencies], search_query: str) -> str:
-    """Retrieve relevant Pine Script documentation using hybrid search pipeline.
 
-    Pipeline: vector + BM25 → RRF fusion → similarity threshold → cross-encoder
-    reranking → MMR deduplication.
+SYSTEM_PROMPT = (
+    "You are a Pine Script v6 expert assistant. Pine Script is the programming language used in TradingView "
+    "for creating custom indicators and strategies for technical analysis of financial markets. "
+    "Your task is to provide clear, accurate information about Pine Script v6 based on the official documentation. "
+    "Always include code examples in your explanations when relevant. "
+    "Focus on being practical and giving working solutions for user problems.\n\n"
+    "When answering questions about Pine Script, follow these guidelines:\n"
+    "1. Include working code examples whenever possible\n"
+    "2. Explain each part of the code clearly\n"
+    "3. Highlight any common pitfalls or best practices\n"
+    "4. If you're unsure about something, be transparent about it\n"
+    "5. Format your code with proper syntax highlighting\n"
+    "6. When appropriate, mention TradingView-specific context\n"
+    "7. Reference specific Pine Script v6 functions and features accurately\n"
+    "8. Provide clear explanations of complex concepts with analogies when helpful\n"
+)
 
-    Args:
-        ctx: The run context with dependencies
-        search_query: The search query to find relevant documentation
 
-    Returns:
-        str: Concatenated documentation snippets relevant to the query
-    """
-    try:
-        openai_client = ctx.deps.openai
+def _model_ref(value: str) -> str:
+    """Prefix raw OpenRouter IDs while preserving provider-qualified refs."""
+    slash_index = value.find("/")
+    colon_index = value.find(":")
+    if colon_index >= 0 and (slash_index < 0 or colon_index < slash_index):
+        return value
+    return f"openrouter:{value}"
 
-        logger.debug("Running hybrid retrieval for: %s", search_query)
 
+def resolve_model(preset: str | None) -> tuple[str, float, int]:
+    """Map a preset name, raw OpenRouter ID, or None to model settings."""
+    if preset and preset in MODEL_PRESETS:
+        cfg = get_preset(preset)
+        model = _model_ref(str(cfg["model"]))
+        temperature = float(cfg["temperature"])
+        max_tokens = int(cfg["max_tokens"])
+        logger.info("Using preset '%s' → %s", preset, cfg["model"])
+    elif preset:
+        model = _model_ref(preset)
+        temperature = LLM_TEMPERATURE
+        max_tokens = LLM_MAX_TOKENS
+        logger.info("Using raw model ID: %s", preset)
+    elif os.getenv("OPENROUTER_API_KEY"):
+        model = _model_ref(OPENROUTER_DEFAULT_MODEL)
+        temperature = LLM_TEMPERATURE
+        max_tokens = LLM_MAX_TOKENS
+        logger.info("Using OpenRouter default model")
+    else:
+        logger.info("Using default OpenAI model")
+        return DEFAULT_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS
+
+    if model.startswith("openrouter:") and not os.getenv("OPENROUTER_API_KEY"):
+        logger.warning("OPENROUTER_API_KEY not found, using default OpenAI model")
+        return DEFAULT_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS
+
+    return model, temperature, max_tokens
+
+
+def build_harness(
+    pool: asyncpg.Pool,
+    openai_client: AsyncOpenAI,
+    *,
+    model: str = DEFAULT_MODEL,
+    temperature: float = LLM_TEMPERATURE,
+    max_tokens: int = LLM_MAX_TOKENS,
+) -> Harness:
+    """Build a Pine Script agent harness around the retrieval dependencies."""
+
+    async def retrieve(args: RetrieveArgs) -> str:
+        logger.debug("Running hybrid retrieval for: %s", args.search_query)
         docs = await hybrid_retrieve(
-            pool=ctx.deps.pool,
+            pool=pool,
             openai_client=openai_client,
-            query=search_query,
+            query=args.search_query,
             embedding_model=EMBEDDING_MODEL,
             candidates=RETRIEVAL_CANDIDATES,
             alpha=HYBRID_SEARCH_ALPHA,
@@ -182,15 +196,38 @@ async def retrieve(ctx: RunContext[Dependencies], search_query: str) -> str:
             )
 
         logger.debug("Hybrid retrieval returned %d documents", len(docs))
-        ctx.custom_data = {"snippets_used": len(docs)}
-
         return "\n\n".join(
             f"# {doc.title}\nDocumentation URL: {doc.url}\n\n{doc.content}\n"
             for doc in docs
         )
-    except Exception as e:
-        logger.error("Error in retrieve tool: %s", e)
-        return f"Error retrieving documentation: {str(e)}"
+
+    return Harness(
+        HarnessConfig(
+            root=".",
+            model=model,
+            system_prompt=SYSTEM_PROMPT,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            output_type=PineScriptResult,
+            output_mode="auto",
+            builtin_tools=[],
+            max_model_requests=8,
+            max_tool_calls=8,
+        ),
+        tools=[
+            ToolSpec(
+                name="retrieve",
+                description=(
+                    "Retrieve relevant Pine Script documentation using the hybrid search "
+                    "pipeline: vector and BM25 search, RRF fusion, similarity filtering, "
+                    "cross-encoder reranking, and MMR deduplication."
+                ),
+                parameters=RetrieveArgs,
+                handler=retrieve,
+            )
+        ],
+    )
+
 
 @asynccontextmanager
 async def database_connect(create_db: bool = False) -> AsyncGenerator[asyncpg.Pool, None]:
@@ -218,22 +255,6 @@ async def database_connect(create_db: bool = False) -> AsyncGenerator[asyncpg.Po
         logger.error("Error connecting to database: %s", e)
         raise
 
-def create_openrouter_model(model_id: str | None = None):
-    """Create an OpenRouter model.
-
-    Args:
-        model_id: OpenRouter model ID (e.g. ``openai/gpt-5.3-codex``).
-                  Falls back to OPENROUTER_DEFAULT_MODEL from config.
-    """
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-    if not openrouter_api_key:
-        logger.info("OPENROUTER_API_KEY not found, using OpenAI")
-        return None
-
-    chosen = model_id or OPENROUTER_DEFAULT_MODEL
-    logger.info("Creating OpenRouter model: %s", chosen)
-    provider = OpenAIProvider(base_url=OPENROUTER_BASE_URL, api_key=openrouter_api_key)
-    return OpenAIModel(chosen, provider=provider)
 
 async def run_agent(question: str, preset: str | None = None):
     """Run the agent with a specific question.
@@ -247,52 +268,24 @@ async def run_agent(question: str, preset: str | None = None):
     logger.info("Running agent with question: %s", question)
 
     openai_api_key = get_openai_api_key()
-    openai = AsyncOpenAI(api_key=openai_api_key)
-
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-    use_openrouter = bool(openrouter_api_key)
-
-    # Resolve model override from preset name or raw model ID
-    model_override = None
-    if preset:
-        from config import MODEL_PRESETS, get_preset
-        if preset in MODEL_PRESETS:
-            cfg = get_preset(preset)
-            model_override = create_openrouter_model(cfg["model"])
-            logger.info("Using preset '%s' → %s", preset, cfg["model"])
-        else:
-            # Treat as a raw OpenRouter model ID
-            model_override = create_openrouter_model(preset)
-            logger.info("Using raw model ID: %s", preset)
+    model, temperature, max_tokens = resolve_model(preset)
 
     try:
         async with database_connect(False) as pool:
-            deps = Dependencies(
-                openai=openai,
-                pool=pool,
-                openrouter_api_key=openrouter_api_key,
-                use_openrouter=use_openrouter,
-            )
-
-            if model_override:
-                with pinescript_agent.override(model=model_override):
-                    answer = await pinescript_agent.run(question, deps=deps)
-            elif use_openrouter:
-                logger.info("Using OpenRouter default model")
-                or_model = create_openrouter_model()
-                if or_model:
-                    with pinescript_agent.override(model=or_model):
-                        answer = await pinescript_agent.run(question, deps=deps)
-                else:
-                    answer = await pinescript_agent.run(question, deps=deps)
-            else:
-                logger.info("Using default OpenAI model")
-                answer = await pinescript_agent.run(question, deps=deps)
-
-            return answer
+            async with AsyncOpenAI(api_key=openai_api_key) as openai:
+                harness = build_harness(
+                    pool,
+                    openai,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                async with harness:
+                    return await harness.run(question)
     except Exception as e:
         logger.error("Error running agent: %s", e)
         return None
+
 
 async def main():
     """Main function to run the agent from the command line."""
@@ -310,6 +303,7 @@ async def main():
         print(f"\nSnippets used: {result.output.snippets_used}")
     else:
         print("No response received from the agent.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
