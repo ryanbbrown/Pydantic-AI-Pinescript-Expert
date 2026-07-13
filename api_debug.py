@@ -10,8 +10,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from openai import OpenAI, AsyncOpenAI
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai import Agent
+from thinharness import Harness, HarnessConfig
 
 # Load environment variables
 load_dotenv(override=True)
@@ -45,8 +44,8 @@ async def main():
     # Test standard OpenAI client
     print_section("Standard OpenAI Client Test")
     try:
-        client = OpenAI(api_key=api_key)
-        models = client.models.list()
+        with OpenAI(api_key=api_key) as client:
+            models = client.models.list()
         print("✅ Standard OpenAI client works!")
         print(f"Found {len(models.data)} models")
     except Exception as e:
@@ -55,66 +54,40 @@ async def main():
     # Test AsyncOpenAI client
     print_section("Async OpenAI Client Test")
     try:
-        async_client = AsyncOpenAI(api_key=api_key)
-        models = await async_client.models.list()
+        async with AsyncOpenAI(api_key=api_key) as async_client:
+            models = await async_client.models.list()
         print("✅ Async OpenAI client works!")
         print(f"Found {len(models.data)} models")
     except Exception as e:
         print(f"❌ Async OpenAI client failed: {e}")
     
-    # Test Pydantic AI OpenAIModel
-    print_section("Pydantic AI OpenAIModel Test")
+    # Test a minimal thinharness agent without database dependencies
+    print_section("thinharness Test")
     try:
-        openai_model = OpenAIModel("gpt-4o", api_key=api_key)
-        print("✅ OpenAIModel initialized successfully!")
-        print(f"Model name: {openai_model.model_name}")
-        
-        # Test making a request with the model
-        response = await openai_model("Hello, world!")
-        print("✅ Model request successful!")
-        print(f"Response: {response[:50]}...")
-    except Exception as e:
-        print(f"❌ OpenAIModel failed: {e}")
-    
-    # Test Pydantic AI Agent
-    print_section("Pydantic AI Agent Test")
-    try:
-        # Try creating a minimal agent
-        agent = Agent(
-            model="openai:gpt-4o",
-            model_settings={
-                "api_key": api_key
-            }
+        harness = Harness(
+            HarnessConfig(
+                root=".",
+                model="openai:gpt-4o",
+                system_prompt="Reply briefly.",
+                builtin_tools=[],
+            )
         )
-        print("✅ Agent created successfully!")
-        
-        # Print the agent's model settings
-        print("Agent model settings:")
-        if hasattr(agent, 'model_settings'):
-            for key, value in agent.model_settings.items():
-                if key == "api_key" and value:
-                    print(f"  api_key: {value[:4]}...{value[-4:]}")
-                else:
-                    print(f"  {key}: {value}")
-        
-        # Try making a request with the agent
-        try:
-            result = agent.run_sync("Hello, world!", model_settings={"api_key": api_key})
-            print("✅ Agent request successful!")
-            print(f"Response: {result.data[:50]}...")
-        except Exception as e:
-            print(f"❌ Agent request failed: {e}")
-            
-            # Check if the error is related to API key
-            error_str = str(e).lower()
-            if "api key" in error_str or "openai" in error_str:
-                print("\nDetected potential API key issue in agent request.")
-                print("Suggestions:")
-                print("1. Try updating the pinescript_agent initialization in agent.py")
-                print("2. Add model_settings with api_key explicitly when creating the agent")
-                print("3. Modify the retrieve tool to use a separate OpenAI client")
+        print("✅ Harness created successfully!")
+
+        async with harness:
+            try:
+                result = await harness.run("Reply with: Hello, world!")
+                print("✅ Harness request successful!")
+                print(f"Response: {result.text[:50]}...")
+            except Exception as e:
+                print(f"❌ Harness request failed: {e}")
+
+                error_str = str(e).lower()
+                if "api key" in error_str or "openai" in error_str:
+                    print("\nDetected potential API key issue in the harness request.")
+                    print("Check that OPENAI_API_KEY is set to a valid key.")
     except Exception as e:
-        print(f"❌ Agent creation failed: {e}")
+        print(f"❌ Harness creation failed: {e}")
     
     print_section("Summary")
     print("This debug information should help identify where the API key issue is occurring.")
@@ -122,7 +95,7 @@ async def main():
     print("\nNext steps:")
     print("1. If all tests pass, the issue is likely in how your agent is using the API key")
     print("2. If some tests fail, focus on those specific components")
-    print("3. Check if `model_settings` in the agent includes the correct API key")
+    print("3. Check that OPENAI_API_KEY is available to thinharness")
 
 if __name__ == "__main__":
     asyncio.run(main())
