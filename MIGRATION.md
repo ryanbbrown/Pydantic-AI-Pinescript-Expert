@@ -1,4 +1,4 @@
-# Migration from pydantic-ai to ThinHarness
+# Migration from Pydantic AI to ThinHarness
 
 This repository now uses [ThinHarness](https://github.com/ryanbbrown/thinharness) for its agent loop. The RAG pipeline, database schema, crawler, model configuration values, and structured `PineScriptResult` output remain in place.
 
