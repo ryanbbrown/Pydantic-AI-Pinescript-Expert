@@ -38,4 +38,4 @@ test_results
 chat_history.pkl
 
 # RAGAS evaluation results (contain API responses, may be large)
-results/
+results/chat_resume.json
