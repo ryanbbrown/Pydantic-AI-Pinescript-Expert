@@ -1,6 +1,6 @@
-# Migration from pydantic-ai to thinharness
+# Migration from pydantic-ai to ThinHarness
 
-This repository now uses [thinharness](https://github.com/ryanbbrown/thinharness) for its agent loop. The RAG pipeline, database schema, crawler, model configuration values, and structured `PineScriptResult` output remain in place.
+This repository now uses [ThinHarness](https://github.com/ryanbbrown/thinharness) for its agent loop. The RAG pipeline, database schema, crawler, model configuration values, and structured `PineScriptResult` output remain in place.
 
 ## Before and after
 
@@ -13,9 +13,9 @@ The dependency change is `pydantic-ai>=0.0.22` out and `thinharness>=0.5.3` in. 
 
 ## Agent-loop changes
 
-- `build_harness()` creates a thinharness `Harness` with one `retrieve` tool and no built-in filesystem tools.
+- `build_harness()` creates a ThinHarness `Harness` with one `retrieve` tool and no built-in filesystem tools.
 - The retrieval tool receives its database pool and OpenAI embeddings client through a closure. This replaces the former `Dependencies` dataclass and `RunContext` injection.
-- Model names are resolved to thinharness provider references at runtime. Values in `config.py` and `OPENROUTER_MODEL` remain raw OpenRouter IDs such as `openai/gpt-4.1-mini`.
+- Model names are resolved to ThinHarness provider references at runtime. Values in `config.py` and `OPENROUTER_MODEL` remain raw OpenRouter IDs such as `openai/gpt-4.1-mini`.
 - Harnesses are used as asynchronous context managers so their HTTP clients close after use. The interactive shell keeps one harness and database pool open for its session, then closes both on exit.
 - `PineScriptResult` remains the structured output type. Callers now read `HarnessResult.output`.
 
@@ -99,7 +99,7 @@ async with harness:
 
 ### Multi-turn conversation
 
-Before, Streamlit replayed only prior *user* messages — the model never saw its own answers:
+Before, Streamlit replayed only prior *user* messages, so the model never saw its own answers:
 
 ```python
 previous_messages = []
@@ -109,7 +109,7 @@ for msg in history:
 result = await pinescript_agent.run(prompt, deps=deps, message_history=previous_messages)
 ```
 
-After, both UIs continue the actual conversation through thinharness resume state:
+After, both UIs continue the actual conversation through ThinHarness resume state:
 
 ```python
 result = await harness.run(prompt, resume_from=st.session_state.resume_state)
@@ -120,15 +120,15 @@ st.session_state.resume_state = result.resume_state
 
 - Model preset `temperature` and `max_tokens` values are now applied. They were previously defined but ignored.
 - `run.py` now reads `result.output` instead of the obsolete `result.data` attribute.
-- The interactive shell now passes thinharness resume state between turns. Its former history list was collected but never passed to the agent.
-- Streamlit now preserves user and assistant context through thinharness resume state. Its former replay contained only user messages.
+- The interactive shell now passes ThinHarness resume state between turns. Its former history list was collected but never passed to the agent.
+- Streamlit now preserves user and assistant context through ThinHarness resume state. Its former replay contained only user messages.
 - Both Streamlit query paths share and update the same resume state.
 
 ## New capabilities and side effects
 
 - Every run is bounded to 8 model requests and 8 tool calls.
 - Interactive and Streamlit conversations have real multi-turn memory. The interactive `clear` command resets it.
-- thinharness writes local JSON Lines traces to `~/.thinharness/traces/` by default. These traces can include full prompts, model output, and tool payloads. Set `THINHARNESS_DISABLE_LOCAL_TRACING=1`, or configure a harness with `HarnessConfig(local_tracing=False)`, to disable this output.
+- ThinHarness writes local JSON Lines traces to `~/.thinharness/traces/` by default. These traces can include full prompts, model output, and tool payloads. Set `THINHARNESS_DISABLE_LOCAL_TRACING=1`, or configure a harness with `HarnessConfig(local_tracing=False)`, to disable this output.
 - Streamlit persists resume state in `chat_resume.json` beside the existing `chat_history.pkl`. The resume file can contain the full transcript and provider reasoning data. Treat both files as sensitive. **Clear Chat History** removes both.
 
 ## Intentional non-parity changes
@@ -147,15 +147,15 @@ The migration's automated checks cover the harness configuration, retrieval clos
 
 Live checks run against a pgvector Postgres populated with real embedded documentation chunks and the default OpenAI model:
 
-- `python run.py check` — schema validated, document count reported.
-- `python run.py query "How do I create a moving average crossover strategy?"` — full structured answer through the harness.
-- Two-turn resume — turn 2 correctly answered a question that required turn 1's content, through the same harness instance via `resume_from`.
-- Live retrieval — a documentation-lookup query triggered a real `retrieve` tool call; hybrid search returned the correct document and the answer cited its URL. Confirmed via `tool_call_records` and the local thinharness traces.
-- Streamlit — manually exercised: query answered, snippet caption shown, resume state persisted.
+- `python run.py check`: schema validated, document count reported.
+- `python run.py query "How do I create a moving average crossover strategy?"`: full structured answer through the harness.
+- Two-turn resume: turn 2 correctly answered a question that required turn 1's content, through the same harness instance via `resume_from`.
+- Live retrieval: a documentation-lookup query triggered a real `retrieve` tool call. Hybrid search returned the correct document and the answer cited its URL. Confirmed via `tool_call_records` and the local ThinHarness traces.
+- Streamlit, manually exercised: query answered, snippet caption shown, resume state persisted.
 
 Still deferred: OpenRouter preset calls (no live key available during migration testing) and a multi-retrieval query to confirm the 8 model-request / 8 tool-call limits are suitable.
 
-One observation from live testing worth knowing: for common questions, `gpt-4o-mini` frequently answers from its own knowledge without calling `retrieve` — and then self-reports a nonzero `snippets_used`, since that field is filled by the model. This matches the original agent's design (the tool-calling decision was always the model's), but if grounding in the official docs is a hard requirement, consider a system-prompt instruction to always retrieve before answering.
+One observation from live testing worth knowing: for common questions, `gpt-4o-mini` frequently answers from its own knowledge without calling `retrieve`, and then self-reports a nonzero `snippets_used`, since that field is filled by the model. This matches the original agent's design (the tool-calling decision was always the model's), but if grounding in the official docs is a hard requirement, consider a system-prompt instruction to always retrieve before answering.
 
 ## Open questions and existing issue
 

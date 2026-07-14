@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Use these steps to run the thinharness-based PineScript Expert agent. See [README.md](README.md) and [scripts.md](scripts.md) for more detail.
+Use these steps to run the ThinHarness-based PineScript Expert agent. See [README.md](README.md) and [scripts.md](scripts.md) for more detail.
 
 ## 1. Set Up Environment
 
@@ -48,7 +48,7 @@ python run.py query "How do I create a moving average in Pine Script?"
 
 The interactive shell remembers the full conversation. Enter `clear` to reset that context. Each answer is bounded to 8 model requests and 8 tool calls.
 
-thinharness writes prompts, model output, and tool payloads as JSON Lines files in `~/.thinharness/traces/` by default. Disable local tracing with:
+ThinHarness writes prompts, model output, and tool payloads as JSON Lines files in `~/.thinharness/traces/` by default. Disable local tracing with:
 
 ```bash
 export THINHARNESS_DISABLE_LOCAL_TRACING=1
@@ -74,6 +74,6 @@ python db_inspect.py search "moving average crossover"
 1. **Docker Issues**: Make sure Docker is running and port 54322 is available
 2. **Database Connection**: Verify connection string in `.env` file
 3. **Missing pgvector**: Run `python init_db.py` to check if pgvector is correctly installed
-4. **OpenAI or model issues**: Run `python api_debug.py`. It checks the OpenAI key and client, then makes a small thinharness model request. This command uses a live model and may incur a charge.
+4. **OpenAI or model issues**: Run `python api_debug.py`. It checks the OpenAI key and client, then makes a small ThinHarness model request. This command uses a live model and may incur a charge.
 
 For more detailed instructions, see the full [README.md](README.md) and [scripts.md](scripts.md).
